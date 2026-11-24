@@ -1,26 +1,45 @@
 # ログを人とAIで調べる
 
-共有注文アプリの同じ実行ログを、まず自分で調べ、その後にAmazon Bedrockの回答と比べます。AIには一度のログ検索だけを許し、今回の実行記録にあるJSONログ1件だけを返します。ログにない原因や影響は、分からないまま区別します。
+共有注文アプリの同じ実行ログをまず自分で調べ、必要に応じてAmazon Bedrockの回答と比べます。AIには一度のログ検索だけを許し、今回の実行記録にあるJSONログ1件だけを返します。ログにない原因や影響は、分からないまま区別します。
 
 AIの回答は調査の補助です。運用上の判断や障害原因の確定には使いません。
 
 ## 始める前に
 
-共有アプリの[固定版README](https://github.com/toma1110/aws-observability-sample-app/blob/v1.0.2/README.md)を先頭から読み、そこに書かれた前提確認、AWSへの配置、注文の実行、後片付けを行います。このREADMEは共有アプリの手順を置き換えません。
+共有アプリの[固定版README](https://github.com/toma1110/aws-observability-sample-app/blob/v1.0.2/README.md)を読みます。CloudShellに固定版アプリの実行で作られた`run-evidence.txt`があれば、それを使い、アプリや注文を再実行しません。ファイルがなければ、共有アプリREADMEの「2 実行環境と権限を準備する」から「5 4種類の注文を実行する」に従って準備・配置し、4種類の注文を実行して`run-evidence.txt`を作ります。S05の記録をPCへ保存して確認するまでは、共有アプリ、`run-evidence.txt`、その他の実行記録を削除しないでください。後片付けは、このREADMEの「後片付け」に進んでから行い、共有アプリのAWSリソースは共有アプリREADMEの「7 後片付け」に従って削除します。
 
-講座で案内されたこの演習リポジトリの固定コミットから、S05の資料を取得します。共有アプリを配置したCloudShellで、共有アプリのリポジトリ直下から次を実行します。
+講座のリソースURLからこのREADMEを開き、共有アプリを配置したCloudShellで、共有アプリのリポジトリ直下にいることを`pwd`で確認してください。ブロック内の`EXERCISE_COMMIT`はREADMEの掲載版ではなく、演習ファイルを取り出す配布済み固定版です。ブロックをまとめて実行すると演習資料が共有アプリのリポジトリ内へ展開されます。既に演習資料のフォルダーがある場合は上書きせず、停止して既存の記録を確認してください。
 
 ```bash
-git clone https://github.com/toma1110/ai-poc-to-production-fde-hands-on.git ../ai-poc-to-production-fde-hands-on
-EXERCISE_COMMIT='講座のリソースURLに含まれる40桁のコミットID'
-git -C ../ai-poc-to-production-fde-hands-on archive "$EXERCISE_COMMIT" consumers/ai-poc-to-production-fde/s05 | tar -x -C .
-test -f consumers/ai-poc-to-production-fde/s05/investigate.py
+(
+set -euo pipefail
+EXERCISE_COMMIT='ea013c5553efc5ca6d91caae6a157ff1fd2010f6'
+EXERCISE_DIR='consumers/ai-poc-to-production-fde/s05'
+TEMP_REPO="$(mktemp -d)"
+trap 'rm -rf "$TEMP_REPO"' EXIT
+if [ -e "$EXERCISE_DIR" ]; then
+  echo "演習資料のフォルダーが既にあるため停止しました。既存ファイルは上書きしません。"
+  exit 1
+fi
+git clone --quiet https://github.com/toma1110/ai-poc-to-production-fde-hands-on.git "$TEMP_REPO/repo"
+git -C "$TEMP_REPO/repo" archive "$EXERCISE_COMMIT" \
+  "$EXERCISE_DIR/.gitignore" \
+  "$EXERCISE_DIR/ai-review.template.json" \
+  "$EXERCISE_DIR/human-investigation.template.json" \
+  "$EXERCISE_DIR/hypothetical-investigation.example.json" \
+  "$EXERCISE_DIR/investigate.py" \
+  "$EXERCISE_DIR/test_investigate.py" | tar -x -C .
+test -f "$EXERCISE_DIR/investigate.py"
+printf '共有アプリのHEAD（v1.0.2と一致すること）: '
 git rev-parse HEAD
+)
 ```
 
-最後に表示される共有アプリのコミットが `3a3599121537bb83a9b7afd42162a8635aeee59b`（`v1.0.2`）と一致することを確認します。
+最後に表示される`git rev-parse HEAD`は、演習リポジトリではなく、現在いる共有アプリのリポジトリの確認です。`3a3599121537bb83a9b7afd42162a8635aeee59b`（タグ`v1.0.2`）と一致することを確認してください。
 
-BedrockでAI調査を行う場合は、AWSアカウントで`amazon.nova-lite-v1:0`への推論が許可され、`ap-northeast-1`のBedrock Runtimeを呼べる必要があります。権限がない場合は、自分で権限を広げず、管理者に確認してください。AI調査をしない場合も、先にログを人が読んで記録するところまでは試せます。
+BedrockでAI調査を行う場合は、まずAWSコンソールで使用中のアカウントとロール、リージョンが東京（`ap-northeast-1`）であることを確認します。CLIを使う場合は`aws sts get-caller-identity`で、現在のアカウントと呼び出し元を確認できます。Amazon Bedrockのモデルカタログで東京を選び、Amazon Nova Lite（`amazon.nova-lite-v1:0`）を検索してください。モデルがカタログに表示されても、現在のロールに呼び出す権限があるとは限りません。権限確認のためだけに追加の推論を実行しないでください。
+
+AI調査で実際に`AccessDenied`が返った場合は、使用中のアカウント・ロールとエラーを確認します。Converse APIの呼び出しには、推論対象と使用するBedrockプロジェクトへの`bedrock:InvokeModel`権限が必要です。[Converse APIの必要な権限](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html)を参照して、現在のロールに対する権限を確認してください。自分で権限を変更しないでください。組織アカウントで、組織側の設定や権限変更が必要な場合に限り、組織の管理者へ相談します。Bedrockを使わずに人だけでログを調べて記録する手順は続けられます。
 
 推論は最大350出力トークンです。このS05資料フォルダーでの実行は、異なるrequest IDを使う通常調査4件まで（各2回、合計8回）と、架空ログの動作確認1回（合計2回）に分かれ、合計10回を上限にします。request IDごとの2回目は同じtool resultを使った最終回答です。一度使ったrequest IDや動作確認枠は再実行できません。APIエラーや想定と異なるtool要求が返った場合も、その回数は消費され、自動再試行しません。上限に達した場合やエラーが出た場合は追加実行を止めて状態を確認してください。`api-usage.json`を削除・初期化して上限を戻さないでください。
 
@@ -128,7 +147,7 @@ S06の評価やS09の提案で使う記録は、共有アプリを削除する�
 ```bash
 cd ../../..
 pwd
-REQUEST_ID='今回AI調査に使った実際のrequestId'
+REQUEST_ID='今回調べたログに表示された実際のrequestId'
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ROOT="$HOME/s05-records"
 RUN_DIR="$RUN_ROOT/$RUN_ID"
@@ -163,7 +182,7 @@ else
 fi
 ```
 
-`REQUEST_ID`の値は説明文ではなく今回AI調査に使った実際のrequest IDに置き換えます。人の調査だけを記録した場合も、`run-evidence.txt`と`human-investigation.json`を保存できます。AI調査や架空ログの動作確認を実行した場合は、作成された結果と利用量のファイルも保存され、実測記録と区別されます。`保存先を作成しました`と表示された場合だけ続けます。同名フォルダーまたはZIPがある、保存に失敗したという表示が出た場合は停止し、`RUN_ID`を別の現在時刻に変えてこの手順を最初からやり直してください。既存の保存先は再利用しません。`RUN_ID`、`RUN_DIR`、`ZIP_PATH`を確認し、保存ファイル名とサイズ、各JSONのrequest ID・実行値・利用量が今回の記録と一致することを確かめます。ZIPの中身は`python3 -m zipfile -l "$ZIP_PATH"`で一覧表示し、`run-evidence.txt`と今回作成された各JSONが入っていることを確認してください。
+`REQUEST_ID`の値は説明文ではなく、今回調べたログの実際のrequest IDに置き換えます。Bedrockを使わず人の調査だけを記録した場合も、`run-evidence.txt`と`human-investigation.json`を保存できます。AI調査や架空ログの動作確認を行った場合は、存在する結果JSONと`api-usage.json`も保存されます。人の調査記録とAIの結果を混同しないでください。`保存先を作成しました`と表示された場合だけ続けます。同名フォルダーまたはZIPがある、保存に失敗したという表示が出た場合は停止し、`RUN_ID`を別の現在時刻に変えてこの手順を最初からやり直してください。既存の保存先は再利用しません。`RUN_ID`、`RUN_DIR`、`ZIP_PATH`を確認し、保存ファイル名とサイズ、各JSONのrequest ID・実行値・利用量が今回の記録と一致することを確かめます。ZIPの中身は`python3 -m zipfile -l "$ZIP_PATH"`で一覧表示し、`run-evidence.txt`と今回作成された各JSONが入っていることを確認してください。
 
 CloudShellで`realpath "$ZIP_PATH"`を実行し、表示された絶対パスをコピーします。**Actions → Download file** のファイル名欄には、`$HOME`のような変数ではなく、コピーした実際の絶対パスを入力して受講者PCへダウンロードします。PCの `ドキュメント\FDE-course-records\S05\<RUN_ID>` など自分の学習記録用フォルダーへ展開し、`run-evidence.txt`と各JSONが開けて同じrequest IDを含むことを確認します。S06とS09ではこの保存版を参照します。S05資料の取得先やCloudShell上の一時作業フォルダーは記録の保管先にしないでください。
 
@@ -176,7 +195,7 @@ S05資料を使ったログ調査とBedrock呼出しは追加の永続AWSリソ�
 PCへ保存したファイルを開いて内容を確認するまでは、CloudShell上の記録を削除しないでください。後段のS06評価とS09提案で使い終えた後、CloudShellで今回の実行記録を削除できます。まだ同じS05実行を再開する可能性がある間は、`api-usage.json`と作業ファイルを残し、同じ実行をやり直さないでください。`api-usage.json`は同じ実行の回数を戻すために削除・初期化しないでください。
 
 ```bash
-REQUEST_ID='今回AI調査に使った実際のrequestId'
+REQUEST_ID='今回調べたログに表示された実際のrequestId'
 RUN_ID='上の保存で表示された実際のRUN_ID'
 RUN_ROOT="$HOME/s05-records"
 RUN_DIR="$RUN_ROOT/$RUN_ID"
