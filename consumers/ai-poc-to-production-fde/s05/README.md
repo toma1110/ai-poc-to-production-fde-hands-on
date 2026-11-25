@@ -82,17 +82,19 @@ nano human-investigation.json
 
 `request_id`と`evidence_request_ids`には表示された実際の`requestId`を入れ、`query`にはそのJSONだけに答える問いを書きます。`started_at`と`completed_at`にはタイムゾーン付きの実時刻を入れ、`findings`と`uncertainty`には自分の調査結果と残る不明点を書きます。Bedrockを呼ぶ前にこの記録を保存してください。人の調査内容やシナリオ名はBedrockへ送信されず、AI toolには同じJSONログ1件と同じ問いだけが渡ります。
 
-### 教材用の想定例
+### 記入例を日本語で読む（任意）
 
-任意の想定例は、実測した人の調査の代わりにはなりません。まず自分でログを調べ、実際の回答と時刻を`human-investigation.json`へ保存し、その実測記録を使ってAI調査を行ってください。教材用の例を確認するときは、別名の`hypothetical-investigation.example.json`を直接表示します。この例を`human-investigation.json`へコピーすると実測記録が置き換わり、続けてAI調査を実行した場合も想定例が使われるため、コピーしないでください。`investigate.py`には別ファイルを指定する引数はありません。
+調査結果の書き方を確認したいときは、次を実行します。
 
 ```bash
-python3 -m json.tool hypothetical-investigation.example.json
+python3 -m json.tool --no-ensure-ascii hypothetical-investigation.example.json
 ```
 
-このコマンドは別名の例を表示するだけで、調査CLIの入力や実測記録を変更しません。`investigate.py --validate-only`は現在の`human-investigation.json`と実行ログの対応を確認するコマンドです。実測記録を保存した後にこれを実行し、AI調査も同じ`actual`記録を使ってください。例の`started_at`/`completed_at`は`null`です。架空の日時や実測時間欄を作らず、想定所要時間は`illustrative_duration`へ「教材用の想定」と明記して分けます。例では「3分程度」としています。想定時間と実測値から短縮率を出すことはできません。
+`findings` にログから読み取れたこと、`uncertainty` に追加の調査が必要なことが日本語で表示されます。「3分程度」は教材用の想定時間です。実測時間との比較には使えません。記入例を読むだけなら、ここで完了です。
 
-記録が現在の実行ログと対応するかを確認します。このコマンドはBedrockを呼びません。
+### 自分の調査記録を検証する
+
+AIとの比較に進む方は、先ほどの `human-investigation.json` に自分が調べたリクエストID、問い、時刻、結果を記入して保存してください。記入例は別ファイルのままにしておきます。次のコマンドで、自分の記録が今回の実行ログと対応しているか確認できます。Bedrockの呼び出しはありません。
 
 ```bash
 python3 investigate.py --validate-only
