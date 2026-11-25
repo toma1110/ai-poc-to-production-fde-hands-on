@@ -13,7 +13,7 @@ AIの回答は調査の補助です。運用上の判断や障害原因の確定
 ```bash
 (
 set -euo pipefail
-EXERCISE_COMMIT='ea013c5553efc5ca6d91caae6a157ff1fd2010f6'
+EXERCISE_COMMIT='f88b24e37cafe327f042cba8ef4a59b16078a6bf'
 EXERCISE_DIR='consumers/ai-poc-to-production-fde/s05'
 TEMP_REPO="$(mktemp -d)"
 trap 'rm -rf "$TEMP_REPO"' EXIT
