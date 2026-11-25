@@ -108,7 +108,7 @@ def load_human_record(path: Path = HUMAN_RECORD_PATH) -> tuple[dict, int]:
     if not isinstance(human, dict) or set(human) != required:
         raise ValueError("Copy human-investigation.template.json and fill each field")
     if not isinstance(human["request_id"], str) or not human["request_id"].strip() or not isinstance(human["query"], str) or not human["query"].strip():
-        raise ValueError("Human record needs one actual requestId and the exact question you investigated")
+        raise ValueError("human-investigation.json の request_id に今回調べたログのIDを、query に調べた問いを記入してください。")
     if not isinstance(human["findings"], str) or not human["findings"].strip() or not isinstance(human["uncertainty"], str):
         raise ValueError("Record your actual findings and any uncertainty before AI comparison")
     if not isinstance(human["evidence_request_ids"], list) or not human["evidence_request_ids"]:
@@ -136,7 +136,15 @@ def load_human_record(path: Path = HUMAN_RECORD_PATH) -> tuple[dict, int]:
     entries = load_evidence(EVIDENCE_PATH)
     matching = [entry for entry in entries.values() if entry["requestId"] == human["request_id"]]
     if len(matching) != 1:
-        raise ValueError("The selected requestId must match exactly one log in the current run-evidence.txt")
+        if human["provenance"] == "hypothetical":
+            raise ValueError(
+                "記入例のリクエストIDは今回のログを特定できません。記入例を読むだけなら、ここで完了です。"
+                "比較を続けるには、human-investigation.json に今回のログを自分で調べた結果を記入してください。"
+            )
+        raise ValueError(
+            f"今回の run-evidence.txt で、指定したリクエストIDに一致するログは {len(matching)} 件です。"
+            "今回調べたログの requestId を確認し、human-investigation.json の request_id と照合してください。"
+        )
     if human["request_id"] not in human["evidence_request_ids"]:
         raise ValueError("Human evidence requestId does not match the selected actual run log")
     return human, duration_ms
@@ -476,7 +484,10 @@ def main():
         print(json.dumps(result, ensure_ascii=False, indent=2))
         print(f"Saved test-only result: {output.name}")
         return
-    human, _ = load_human_record()
+    try:
+        human, _ = load_human_record()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     evidence = load_evidence()
     if args.validate_only:
         print(json.dumps({"requestId": human["request_id"], "bedrock_calls": 0}, indent=2))
